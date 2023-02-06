@@ -29,7 +29,7 @@
 #pragma warning(disable : 26481) // Don't use pointer arithmetic. Use span instead (bounds.1).
 #pragma warning(disable : 26482) // Only index into arrays using constant expressions (bounds.2).
 
-using namespace Microsoft::Console::Render;
+using namespace Microsoft::Console::Render::Atlas;
 
 #pragma warning(suppress : 26455) // Default constructor may not throw. Declare it 'noexcept' (f.6).
 AtlasEngine::AtlasEngine()
@@ -51,20 +51,6 @@ AtlasEngine::AtlasEngine()
     }
 
     _sr.isWindows10OrGreater = IsWindows10OrGreater();
-
-#ifndef NDEBUG
-    {
-        _sr.sourceDirectory = std::filesystem::path{ __FILE__ }.parent_path();
-        _sr.sourceCodeWatcher = wil::make_folder_change_reader_nothrow(_sr.sourceDirectory.c_str(), false, wil::FolderChangeEvents::FileName | wil::FolderChangeEvents::LastWriteTime, [this](wil::FolderChangeEvent, PCWSTR path) {
-            if (til::ends_with(path, L".hlsl"))
-            {
-                auto expected = INT64_MAX;
-                const auto invalidationTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
-                _sr.sourceCodeInvalidationTime.compare_exchange_strong(expected, invalidationTime.time_since_epoch().count(), std::memory_order_relaxed);
-            }
-        });
-    }
-#endif
 }
 
 #pragma region IRenderEngine
@@ -87,82 +73,24 @@ try
         }
     }
 
-    // It's important that we invalidate here instead of in Present() with the rest.
-    // Other functions, those called before Present(), might depend on _r fields.
-    // But most of the time _invalidations will be ::none, making this very cheap.
-    if (_api.invalidations != ApiInvalidations::None)
+    if (_p.s != _api.s)
     {
-        RETURN_HR_IF(E_UNEXPECTED, _api.cellCount == u16x2{});
+        const auto fontChanged = _p.s->font != _api.s->font;
+        const auto cellCountChanged = _p.s->cellCount != _api.s->cellCount;
 
-        if (WI_IsFlagSet(_api.invalidations, ApiInvalidations::Device))
-        {
-            _createResources();
-        }
-        if (WI_IsFlagSet(_api.invalidations, ApiInvalidations::SwapChain))
-        {
-            _createSwapChain();
-        }
-        if (WI_IsFlagSet(_api.invalidations, ApiInvalidations::Size))
-        {
-            _recreateSizeDependentResources();
-        }
-        if (WI_IsFlagSet(_api.invalidations, ApiInvalidations::Font))
+        _p.s = _api.s;
+
+        if (fontChanged)
         {
             _recreateFontDependentResources();
         }
-        if (WI_IsFlagSet(_api.invalidations, ApiInvalidations::Settings))
+        if (fontChanged || cellCountChanged)
         {
-            _r.selectionColor = _api.selectionColor;
-            WI_SetFlag(_r.invalidations, RenderInvalidations::ConstBuffer);
-            WI_ClearFlag(_api.invalidations, ApiInvalidations::Settings);
+            _recreateSizeDependentResources();
         }
 
-        // Equivalent to InvalidateAll().
         _api.invalidatedRows = invalidatedRowsAll;
     }
-
-#ifndef NDEBUG
-    if (const auto invalidationTime = _sr.sourceCodeInvalidationTime.load(std::memory_order_relaxed); invalidationTime != INT64_MAX && invalidationTime <= std::chrono::steady_clock::now().time_since_epoch().count())
-    {
-        _sr.sourceCodeInvalidationTime.store(INT64_MAX, std::memory_order_relaxed);
-
-        try
-        {
-            static const auto compile = [](const std::filesystem::path& path, const char* target) {
-                wil::com_ptr<ID3DBlob> error;
-                wil::com_ptr<ID3DBlob> blob;
-                const auto hr = D3DCompileFromFile(
-                    /* pFileName   */ path.c_str(),
-                    /* pDefines    */ nullptr,
-                    /* pInclude    */ D3D_COMPILE_STANDARD_FILE_INCLUDE,
-                    /* pEntrypoint */ "main",
-                    /* pTarget     */ target,
-                    /* Flags1      */ D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS,
-                    /* Flags2      */ 0,
-                    /* ppCode      */ blob.addressof(),
-                    /* ppErrorMsgs */ error.addressof());
-
-                if (error)
-                {
-                    std::thread t{ [error = std::move(error)]() noexcept {
-                        MessageBoxA(nullptr, static_cast<const char*>(error->GetBufferPointer()), "Compilation error", MB_ICONERROR | MB_OK);
-                    } };
-                    t.detach();
-                }
-
-                THROW_IF_FAILED(hr);
-                return blob;
-            };
-
-            const auto vs = compile(_sr.sourceDirectory / L"shader_vs.hlsl", "vs_4_0");
-            const auto ps = compile(_sr.sourceDirectory / L"shader_ps.hlsl", "ps_4_0");
-
-            THROW_IF_FAILED(_r.device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, _r.vertexShader.put()));
-            THROW_IF_FAILED(_r.device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, _r.cleartypePixelShader.put()));
-        }
-        CATCH_LOG()
-    }
-#endif
 
     if constexpr (debugGlyphGenerationPerformance)
     {
@@ -651,282 +579,6 @@ void AtlasEngine::_createResources()
 
     if (!_r.d2dMode)
     {
-        // Our constant buffer will never get resized
-        {
-            D3D11_BUFFER_DESC desc{};
-            desc.ByteWidth = sizeof(ConstBuffer);
-            desc.Usage = D3D11_USAGE_DEFAULT;
-            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            THROW_IF_FAILED(_r.device->CreateBuffer(&desc, nullptr, _r.constantBuffer.put()));
-        }
-
-        THROW_IF_FAILED(_r.device->CreateVertexShader(&shader_vs[0], sizeof(shader_vs), nullptr, _r.vertexShader.put()));
-        THROW_IF_FAILED(_r.device->CreatePixelShader(&shader_text_cleartype_ps[0], sizeof(shader_text_cleartype_ps), nullptr, _r.cleartypePixelShader.put()));
-        THROW_IF_FAILED(_r.device->CreatePixelShader(&shader_text_grayscale_ps[0], sizeof(shader_text_grayscale_ps), nullptr, _r.grayscalePixelShader.put()));
-        THROW_IF_FAILED(_r.device->CreatePixelShader(&shader_invert_cursor_ps[0], sizeof(shader_invert_cursor_ps), nullptr, _r.invertCursorPixelShader.put()));
-        THROW_IF_FAILED(_r.device->CreatePixelShader(&shader_wireframe[0], sizeof(shader_wireframe), nullptr, _r.wireframePixelShader.put()));
-
-        {
-            D3D11_BLEND_DESC1 desc{};
-            desc.RenderTarget[0] = {
-                .BlendEnable = true,
-                .SrcBlend = D3D11_BLEND_ONE,
-                .DestBlend = D3D11_BLEND_INV_SRC1_COLOR,
-                .BlendOp = D3D11_BLEND_OP_ADD,
-                .SrcBlendAlpha = D3D11_BLEND_ONE,
-                .DestBlendAlpha = D3D11_BLEND_ZERO,
-                .BlendOpAlpha = D3D11_BLEND_OP_ADD,
-                .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
-            };
-            THROW_IF_FAILED(_r.device->CreateBlendState1(&desc, _r.cleartypeBlendState.put()));
-        }
-        {
-            D3D11_BLEND_DESC1 desc{};
-            desc.RenderTarget[0] = {
-                .BlendEnable = true,
-                .SrcBlend = D3D11_BLEND_ONE,
-                .DestBlend = D3D11_BLEND_INV_SRC_ALPHA,
-                .BlendOp = D3D11_BLEND_OP_ADD,
-                .SrcBlendAlpha = D3D11_BLEND_ONE,
-                .DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA,
-                .BlendOpAlpha = D3D11_BLEND_OP_ADD,
-                .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
-            };
-            THROW_IF_FAILED(_r.device->CreateBlendState1(&desc, _r.alphaBlendState.put()));
-        }
-        {
-            D3D11_BLEND_DESC1 desc{};
-            desc.RenderTarget[0] = {
-                .LogicOpEnable = true,
-                .LogicOp = D3D11_LOGIC_OP_XOR,
-                .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE,
-            };
-            THROW_IF_FAILED(_r.device->CreateBlendState1(&desc, _r.invertCursorBlendState.put()));
-        }
-
-        if constexpr (debugNvidiaQuadFill)
-        {
-            // Quick hack to test NVAPI_QUAD_FILLMODE_BBOX if needed.
-            struct NvAPI_D3D11_RASTERIZER_DESC_EX : D3D11_RASTERIZER_DESC
-            {
-                UINT8 _padding1[40];
-                INT QuadFillMode; // Set to 1 for NVAPI_QUAD_FILLMODE_BBOX
-                UINT8 _padding2[67];
-            };
-
-            using NvAPI_QueryInterface_t = PVOID(__cdecl*)(UINT);
-            using NvAPI_Initialize_t = INT(__cdecl*)();
-            using NvAPI_D3D11_CreateRasterizerState_t = INT(__cdecl*)(ID3D11Device*, const NvAPI_D3D11_RASTERIZER_DESC_EX*, ID3D11RasterizerState**);
-
-            static const auto NvAPI_D3D11_CreateRasterizerState = []() -> NvAPI_D3D11_CreateRasterizerState_t {
-                const auto module = LoadLibraryExW(L"nvapi64.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-                if (!module)
-                {
-                    return nullptr;
-                }
-                const auto NvAPI_QueryInterface = reinterpret_cast<NvAPI_QueryInterface_t>(GetProcAddress(module, "nvapi_QueryInterface"));
-                if (!NvAPI_QueryInterface)
-                {
-                    return nullptr;
-                }
-                const auto NvAPI_Initialize = reinterpret_cast<NvAPI_Initialize_t>(NvAPI_QueryInterface(0x0150E828));
-                if (!NvAPI_Initialize)
-                {
-                    return nullptr;
-                }
-                const auto func = reinterpret_cast<NvAPI_D3D11_CreateRasterizerState_t>(NvAPI_QueryInterface(0xDB8D28AF));
-                if (!NvAPI_Initialize)
-                {
-                    return nullptr;
-                }
-                if (NvAPI_Initialize())
-                {
-                    return nullptr;
-                }
-                return func;
-            }();
-
-            if (NvAPI_D3D11_CreateRasterizerState)
-            {
-                NvAPI_D3D11_RASTERIZER_DESC_EX desc{};
-                desc.FillMode = D3D11_FILL_SOLID;
-                desc.CullMode = D3D11_CULL_NONE;
-                desc.QuadFillMode = 1;
-                if (const auto status = NvAPI_D3D11_CreateRasterizerState(_r.device.get(), &desc, _r.rasterizerState.put()))
-                {
-                    LOG_HR_MSG(E_UNEXPECTED, "failed to set QuadFillMode with: %d", status);
-                    THROW_IF_FAILED(_r.device->CreateRasterizerState(&desc, _r.rasterizerState.put()));
-                    _r.instanceCount = 6;
-                }
-                else
-                {
-                    _r.instanceCount = 3;
-                }
-            }
-        }
-        else
-        {
-            D3D11_RASTERIZER_DESC desc{};
-            desc.FillMode = D3D11_FILL_SOLID;
-            desc.CullMode = D3D11_CULL_NONE;
-            THROW_IF_FAILED(_r.device->CreateRasterizerState(&desc, _r.rasterizerState.put()));
-        }
-
-        {
-            D3D11_RASTERIZER_DESC desc{};
-            desc.FillMode = D3D11_FILL_WIREFRAME;
-            desc.CullMode = D3D11_CULL_NONE;
-            wil::com_ptr<ID3D11RasterizerState> state;
-            THROW_IF_FAILED(_r.device->CreateRasterizerState(&desc, _r.wireframeRasterizerState.put()));
-        }
-
-        {
-            static constexpr D3D11_INPUT_ELEMENT_DESC layout[]{
-                { "SV_Position", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-                { "Rect", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, offsetof(VertexInstanceData, rect), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-                { "Tex", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, offsetof(VertexInstanceData, tex), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-                { "Color", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 1, offsetof(VertexInstanceData, color), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-                { "ShadingType", 0, DXGI_FORMAT_R32_UINT, 1, offsetof(VertexInstanceData, shadingType), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-            };
-            THROW_IF_FAILED(_r.device->CreateInputLayout(&layout[0], gsl::narrow_cast<UINT>(std::size(layout)), &shader_vs[0], sizeof(shader_vs), _r.textInputLayout.put()));
-        }
-
-        {
-            static constexpr f32x2 vertices[]{
-                { 0, 0 },
-                { 1, 0 },
-                { 1, 1 },
-                { 1, 1 },
-                { 0, 1 },
-                { 0, 0 },
-            };
-
-            D3D11_BUFFER_DESC desc{};
-            desc.ByteWidth = sizeof(vertices);
-            desc.Usage = D3D11_USAGE_IMMUTABLE;
-            desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-            const D3D11_SUBRESOURCE_DATA initialData{ &vertices[0] };
-            THROW_IF_FAILED(_r.device->CreateBuffer(&desc, &initialData, _r.vertexBuffers[0].put()));
-        }
-
-        if (!_api.customPixelShaderPath.empty())
-        {
-            const char* target = nullptr;
-            switch (featureLevel)
-            {
-            case D3D_FEATURE_LEVEL_10_0:
-                target = "ps_4_0";
-                break;
-            case D3D_FEATURE_LEVEL_10_1:
-                target = "ps_4_1";
-                break;
-            default:
-                target = "ps_5_0";
-                break;
-            }
-
-            static constexpr auto flags =
-                D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR
-#ifdef NDEBUG
-                | D3DCOMPILE_OPTIMIZATION_LEVEL3;
-#else
-                // Only enable strictness and warnings in DEBUG mode
-                //  as these settings makes it very difficult to develop
-                //  shaders as windows terminal is not telling the user
-                //  what's wrong, windows terminal just fails.
-                //  Keep it in DEBUG mode to catch errors in shaders
-                //  shipped with windows terminal
-                | D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS | D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif
-
-            wil::com_ptr<ID3DBlob> error;
-            wil::com_ptr<ID3DBlob> blob;
-            const auto hr = D3DCompileFromFile(
-                /* pFileName   */ _api.customPixelShaderPath.c_str(),
-                /* pDefines    */ nullptr,
-                /* pInclude    */ D3D_COMPILE_STANDARD_FILE_INCLUDE,
-                /* pEntrypoint */ "main",
-                /* pTarget     */ target,
-                /* Flags1      */ flags,
-                /* Flags2      */ 0,
-                /* ppCode      */ blob.addressof(),
-                /* ppErrorMsgs */ error.addressof());
-
-            // Unless we can determine otherwise, assume this shader requires evaluation every frame
-            _r.requiresContinuousRedraw = true;
-
-            if (SUCCEEDED(hr))
-            {
-                THROW_IF_FAILED(_r.device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, _r.customPixelShader.put()));
-
-                // Try to determine whether the shader uses the Time variable
-                wil::com_ptr<ID3D11ShaderReflection> reflector;
-                if (SUCCEEDED_LOG(D3DReflect(blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(reflector.put()))))
-                {
-                    if (ID3D11ShaderReflectionConstantBuffer* constantBufferReflector = reflector->GetConstantBufferByIndex(0)) // shader buffer
-                    {
-                        if (ID3D11ShaderReflectionVariable* variableReflector = constantBufferReflector->GetVariableByIndex(0)) // time
-                        {
-                            D3D11_SHADER_VARIABLE_DESC variableDescriptor;
-                            if (SUCCEEDED_LOG(variableReflector->GetDesc(&variableDescriptor)))
-                            {
-                                // only if time is used
-                                _r.requiresContinuousRedraw = WI_IsFlagSet(variableDescriptor.uFlags, D3D_SVF_USED);
-                            }
-                        }
-                    }
-                }
-            }
-            else
-            {
-                if (error)
-                {
-                    LOG_HR_MSG(hr, "%*hs", error->GetBufferSize(), error->GetBufferPointer());
-                }
-                else
-                {
-                    LOG_HR(hr);
-                }
-                if (_api.warningCallback)
-                {
-                    _api.warningCallback(D2DERR_SHADER_COMPILE_FAILED);
-                }
-            }
-        }
-        else if (_api.useRetroTerminalEffect)
-        {
-            THROW_IF_FAILED(_r.device->CreatePixelShader(&custom_shader_ps[0], sizeof(custom_shader_ps), nullptr, _r.customPixelShader.put()));
-            // We know the built-in retro shader doesn't require continuous redraw.
-            _r.requiresContinuousRedraw = false;
-        }
-
-        if (_r.customPixelShader)
-        {
-            THROW_IF_FAILED(_r.device->CreateVertexShader(&custom_shader_vs[0], sizeof(custom_shader_vs), nullptr, _r.customVertexShader.put()));
-
-            {
-                D3D11_BUFFER_DESC desc{};
-                desc.ByteWidth = sizeof(CustomConstBuffer);
-                desc.Usage = D3D11_USAGE_DYNAMIC;
-                desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-                THROW_IF_FAILED(_r.device->CreateBuffer(&desc, nullptr, _r.customShaderConstantBuffer.put()));
-            }
-
-            {
-                D3D11_SAMPLER_DESC desc{};
-                desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-                desc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
-                desc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
-                desc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
-                desc.MaxAnisotropy = 1;
-                desc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-                desc.MaxLOD = D3D11_FLOAT32_MAX;
-                THROW_IF_FAILED(_r.device->CreateSamplerState(&desc, _r.customShaderSamplerState.put()));
-            }
-
-            _r.customShaderStartTime = std::chrono::steady_clock::now();
-        }
     }
 
     WI_ClearFlag(_api.invalidations, ApiInvalidations::Device);
