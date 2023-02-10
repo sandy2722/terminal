@@ -16,7 +16,20 @@
     <ClCompile Include="..\OutputCellIterator.cpp" />
     <ClCompile Include="..\OutputCellRect.cpp" />
     <ClCompile Include="..\OutputCellView.cpp" />
-    <ClCompile Include="..\Row.cpp" />
+    <ClCompile Include="..\Row.cpp">
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='AuditMode|Win32'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Fuzzing|Win32'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='AuditMode|ARM64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Fuzzing|ARM64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='AuditMode|x64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Fuzzing|x64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">/d2inlinestats /d2inlinelogfull:?ReplaceCharacters2@ROW@@QEAAHHHAEAV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@@Z /diagnostics:column %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="..\search.cpp" />
     <ClCompile Include="..\TextColor.cpp" />
     <ClCompile Include="..\TextAttribute.cpp" />

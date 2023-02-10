@@ -379,7 +379,7 @@ bool TextBuffer::_PrepareForDoubleByteSequence(const DbcsAttribute dbcsAttribute
 til::CoordType TextBuffer::Write(til::CoordType row, til::CoordType columnBegin, til::CoordType columnLimit, bool wrapAtEOL, const TextAttribute& attributes, std::wstring_view& chars)
 {
     auto& r = GetRowByOffset(row);
-    const auto column = r.ReplaceCharacters(columnBegin, columnLimit, chars, nullptr);
+    const auto column = r.ReplaceCharacters2(columnBegin, columnLimit, chars);
     r.ReplaceAttributes(columnBegin, column, attributes);
     r.SetWrapForced(wrapAtEOL && column == r.size());
     TriggerRedraw(Viewport::FromExclusive({ columnBegin, row, column, row + 1 }));

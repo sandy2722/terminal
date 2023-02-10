@@ -8,6 +8,9 @@
 
 #include "textBuffer.hpp"
 #include "../../types/inc/GlyphWidth.hpp"
+#include "../../types/inc/CodepointWidthDetector.hpp"
+
+extern CodepointWidthDetector widthDetector;
 
 // The STL is missing a std::iota_n analogue for std::iota, so I made my own.
 template<typename OutIt, typename Diff, typename T>
@@ -473,11 +476,12 @@ void ROW::ReplaceAttributes(const til::CoordType beginIndex, const til::CoordTyp
     _attr.replace(_clampedColumnInclusive(beginIndex), _clampedColumnInclusive(endIndex), newAttr);
 }
 
-til::CoordType ROW::ReplaceCharacters(til::CoordType columnBegin, bool wide, const std::wstring_view& chars)
+[[msvc::noinline]] til::CoordType ROW::ReplaceCharacters(til::CoordType columnBegin, bool wide, const std::wstring_view& chars)
+try
 {
     const auto colBeg = _clampedColumnInclusive(columnBegin);
     const auto colLimit = _columnCount;
-    return _replaceCharacters(colBeg, colLimit, chars, [&](uint16_t chBeg, uint16_t& colEnd, uint16_t& colExtEnd) -> size_t {
+    const auto result = _replaceCharacters(colBeg, colLimit, chars, [&](uint16_t chBeg, uint16_t& colEnd, uint16_t& colExtEnd) -> size_t {
         const auto colEndNew = gsl::narrow_cast<uint16_t>(colEnd + 1u + wide);
         if (colEndNew > colLimit)
         {
@@ -494,60 +498,71 @@ til::CoordType ROW::ReplaceCharacters(til::CoordType columnBegin, bool wide, con
         colExtEnd = colEnd;
         return chars.size();
     });
+    return result.colExtEnd;
+}
+catch (...)
+{
+    // Due to this function writing _charOffsets first, then calling _resizeChars (which may throw) and only then finally
+    // filling in _chars, we might end up in a situation were _charOffsets contains offsets outside of the _chars array.
+    // --> Restore this row to a known "okay"-state.
+    Reset(TextAttribute{});
+    throw;
 }
 
-til::CoordType ROW::ReplaceCharacters(til::CoordType columnBegin, til::CoordType columnLimit, std::wstring_view& chars, std::nullptr_t)
+#pragma inline_depth(255)
+[[msvc::noinline]] til::CoordType ROW::ReplaceCharacters2(til::CoordType columnBegin, til::CoordType columnLimit, std::wstring_view& chars)
+try
 {
-    std::wstring_view charsNew;
-
     const auto colBeg = _clampedColumnInclusive(columnBegin);
     const auto colLimit = _clampedColumnInclusive(columnLimit);
-    const auto colExtEnd = _replaceCharacters(colBeg, colLimit, chars, [&](uint16_t chBeg, uint16_t& colEnd, uint16_t& colExtEnd) -> size_t {
-        auto ch = chBeg;
+    const auto result = _replaceCharacters(colBeg, colLimit, chars, [&](uint16_t chBeg, uint16_t& colEnd, uint16_t& colExtEnd) -> size_t [[msvc::forceinline]] {
+        size_t ch = chBeg;
 
         for (const auto& s : til::utf16_iterator{ chars })
         {
-            const auto colEndNew = gsl::narrow_cast<uint16_t>(colEnd + 1u + IsGlyphFullWidth(s));
+            const auto colEndNew = static_cast<uint16_t>(colEnd + 1u + CodepointWidthDetector::Singleton().IsWide(s));
             if (colEndNew > colLimit)
             {
                 colExtEnd = colLimit;
                 break;
             }
 
-            til::at(_charOffsets, colEnd++) = ch;
+            _charOffsets[colEnd++] = static_cast<uint16_t>(ch);
             for (; colEnd < colEndNew; ++colEnd)
             {
-                til::at(_charOffsets, colEnd) = gsl::narrow_cast<uint16_t>(ch | CharOffsetsTrailer);
+                _charOffsets[colEnd] = static_cast<uint16_t>(ch | CharOffsetsTrailer);
             }
 
             colExtEnd = colEnd;
-            ch = gsl::narrow_cast<uint16_t>(ch + s.size());
+            ch += s.size();
         }
 
-        const size_t charsConsumed = ch - chBeg;
-        charsNew = chars.substr(charsConsumed);
-        return charsConsumed;
+        return ch - chBeg;
     });
 
-    chars = charsNew;
-    return colExtEnd;
+    chars = chars.substr(result.charsConsumed);
+    return result.colExtEnd;
+}
+catch (...)
+{
+    // Due to this function writing _charOffsets first, then calling _resizeChars (which may throw) and only then finally
+    // filling in _chars, we might end up in a situation were _charOffsets contains offsets outside of the _chars array.
+    // --> Restore this row to a known "okay"-state.
+    Reset(TextAttribute{});
+    throw;
 }
 
-til::CoordType ROW::ReplaceCharacters(til::CoordType columnBegin, til::CoordType columnLimit, std::wstring_view& chars, std::span<const uint16_t>& charOffsets)
+[[msvc::noinline]] til::CoordType ROW::ReplaceCharacters(til::CoordType columnBegin, til::CoordType columnLimit, std::wstring_view& chars, std::span<const uint16_t>& charOffsets)
+try
 {
-    std::wstring_view charsNew;
-    std::span<const uint16_t> charOffsetsNew;
-
     const auto colBeg = _clampedColumnInclusive(columnBegin);
     const auto colLimit = _clampedColumnInclusive(columnLimit);
-    const auto colExtEnd = _replaceCharacters(colBeg, colLimit, chars, [&](uint16_t chBeg, uint16_t& colEnd, uint16_t& colExtEnd) -> size_t {
+    const auto result = _replaceCharacters(colBeg, colLimit, chars, [&](uint16_t chBeg, uint16_t& colEnd, uint16_t& colExtEnd) -> size_t {
         // Any valid charOffsets array is at least 2 elements long (the 1st element is the start
         // offset and the 2nd element is the length of the first glyph) and begins/ends with a
         // non-trailer offset (ensuring that the ch0/ch1 offsets below are correctly calculated).
         if (charOffsets.size() < 2 || WI_IsFlagSet(charOffsets.front(), CharOffsetsTrailer) || WI_IsFlagSet(charOffsets.back(), CharOffsetsTrailer))
         {
-            chars = {};
-            charOffsets = {};
             THROW_HR_MSG(E_INVALIDARG, "invalid charOffsets");
         }
 
@@ -585,19 +600,23 @@ til::CoordType ROW::ReplaceCharacters(til::CoordType columnBegin, til::CoordType
             ch = gsl::narrow_cast<uint16_t>(chEnd + chOffset);
         } while (inputColEnd < inputCols);
 
-        const size_t charsConsumed = ch - chBeg;
-        charsNew = chars.substr(charsConsumed);
-        charOffsetsNew = charOffsets.subspan(colEnd - colBeg);
-        return charsConsumed;
+        return ch - chBeg;
     });
 
-    chars = charsNew;
-    charOffsets = charOffsetsNew;
-    return colExtEnd;
+    chars = chars.substr(result.charsConsumed);
+    charOffsets = charOffsets.subspan(result.colEnd - colBeg);
+    return result.colExtEnd;
+}
+catch (...)
+{
+    // Due to this function writing _charOffsets first, then calling _resizeChars (which may throw) and only then finally
+    // filling in _chars, we might end up in a situation were _charOffsets contains offsets outside of the _chars array.
+    // --> Restore this row to a known "okay"-state.
+    Reset(TextAttribute{});
+    throw;
 }
 
-uint16_t ROW::_replaceCharacters(const uint16_t colBeg, const uint16_t colLimit, const std::wstring_view& chars, auto&& func)
-try
+ROW::ReplaceCharactersResult ROW::_replaceCharacters(const uint16_t colBeg, const uint16_t colLimit, const std::wstring_view& chars, auto func)
 {
     // Algorithm explanation
     //
@@ -624,7 +643,7 @@ try
 
     if (colBeg >= colLimit || chars.empty())
     {
-        return colBeg;
+        return { 0, colBeg, colBeg };
     }
 
     // Extend range downwards (leading whitespace)
@@ -675,15 +694,7 @@ try
         SetDoubleBytePadded(colEnd < _columnCount);
     }
 
-    return colExtEnd;
-}
-catch (...)
-{
-    // Due to this function writing _charOffsets first, then calling _resizeChars (which may throw) and only then finally
-    // filling in _chars, we might end up in a situation were _charOffsets contains offsets outside of the _chars array.
-    // --> Restore this row to a known "okay"-state.
-    Reset(TextAttribute{});
-    throw;
+    return { charsConsumed, colEnd, colExtEnd };
 }
 
 // This function represents the slow path of ReplaceCharacters(),

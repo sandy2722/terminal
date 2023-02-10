@@ -19,6 +19,8 @@ Author:
 class CodepointWidthDetector final
 {
 public:
+    static CodepointWidthDetector& Singleton() noexcept;
+
     CodepointWidth GetWidth(const std::wstring_view& glyph) noexcept;
     bool IsWide(const std::wstring_view& glyph) noexcept;
     void SetFallbackMethod(std::function<bool(const std::wstring_view&)> pfnFallback) noexcept;

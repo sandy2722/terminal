@@ -325,6 +325,13 @@ namespace
     };
 }
 
+static CodepointWidthDetector widthDetector;
+
+CodepointWidthDetector& CodepointWidthDetector::Singleton() noexcept
+{
+    return widthDetector;
+}
+
 // Routine Description:
 // - returns the width type of codepoint as fast as we can by using quick lookup table and fallback cache.
 // Arguments:

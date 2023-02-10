@@ -98,9 +98,15 @@ public:
     bool SetAttrToEnd(til::CoordType columnBegin, TextAttribute attr);
     void ReplaceAttributes(til::CoordType beginIndex, til::CoordType endIndex, const TextAttribute& newAttr);
     til::CoordType ReplaceCharacters(til::CoordType columnBegin, bool wide, const std::wstring_view& chars);
-    til::CoordType ReplaceCharacters(til::CoordType columnBegin, til::CoordType columnLimit, std::wstring_view& chars, std::nullptr_t);
+    til::CoordType ReplaceCharacters2(til::CoordType columnBegin, til::CoordType columnLimit, std::wstring_view& chars);
     til::CoordType ReplaceCharacters(til::CoordType columnBegin, til::CoordType columnLimit, std::wstring_view& chars, std::span<const uint16_t>& charOffsetsPtr);
-    uint16_t _replaceCharacters(uint16_t colBeg, uint16_t colLimit, const std::wstring_view& chars, auto&& func);
+    struct ReplaceCharactersResult
+    {
+        size_t charsConsumed = 0;
+        uint16_t colEnd;
+        uint16_t colExtEnd;
+    };
+    ReplaceCharactersResult _replaceCharacters(uint16_t colBeg, uint16_t colLimit, const std::wstring_view& chars, auto func);
 
     const til::small_rle<TextAttribute, uint16_t, 1>& Attributes() const noexcept;
     TextAttribute GetAttrByColumn(til::CoordType column) const;

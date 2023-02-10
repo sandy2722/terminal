@@ -82,7 +82,32 @@ namespace til
 
             const value_type& operator*() const noexcept
             {
-                return _iter.value();
+                if (_iter._advance)
+                {
+                    assert(_it != _end);
+                    auto ptr = _iter._it;
+                    const auto wch = *ptr;
+                    size_t len = 1;
+                    ++_iter._it;
+                    // MSVC fails to inline functions (even those under forceinline) if the callgraph
+                    // is too large. To help MSVC out, we try to avoid making any function calls.
+                    if ((wch & 0xF800) == 0xD800)
+                    {
+                        const auto wch2 = _iter._it != _iter._end ? *_iter._it : wchar_t{};
+                        if ((wch & 0xFC00) == 0xD800 && (wch2 & 0xFC00) == 0xDC00)
+                        {
+                            len = 2;
+                            ++_iter._it;
+                        }
+                        else
+                        {
+                            ptr = &details::UNICODE_REPLACEMENT;
+                        }
+                    }
+                    _iter._value = { ptr, len };
+                    _iter._advance = false;
+                }
+                return _iter._value;
             }
 
             iterator& operator++() noexcept
@@ -93,15 +118,15 @@ namespace til
 
             bool operator!=(const sentinel&) const noexcept
             {
-                return _iter.valid();
+                return _iter._it != _iter._end;
             }
 
         private:
             utf16_iterator& _iter;
         };
 
-        explicit constexpr utf16_iterator(std::wstring_view wstr) noexcept :
-            _it{ wstr.begin() }, _end{ wstr.end() }, _advance{ _it != _end }
+        explicit constexpr utf16_iterator(const std::wstring_view& wstr) noexcept :
+            _it{ wstr.data() }, _end{ _it + wstr.size() }, _advance{ _it != _end }
         {
         }
 
@@ -116,48 +141,8 @@ namespace til
         }
 
     private:
-        bool valid() const noexcept
-        {
-            return _it != _end;
-        }
-
-        void advance() noexcept
-        {
-            const auto wch = *_it;
-            auto ptr = &*_it;
-            size_t len = 1;
-
-            ++_it;
-
-            if (is_surrogate(wch))
-            {
-                const auto wch2 = _it != _end ? *_it : wchar_t{};
-                if (is_leading_surrogate(wch) && is_trailing_surrogate(wch2))
-                {
-                    len = 2;
-                    ++_it;
-                }
-                else
-                {
-                    ptr = &details::UNICODE_REPLACEMENT;
-                }
-            }
-
-            _value = { ptr, len };
-            _advance = false;
-        }
-
-        const std::wstring_view& value() noexcept
-        {
-            if (_advance)
-            {
-                advance();
-            }
-            return _value;
-        }
-
-        std::wstring_view::iterator _it;
-        std::wstring_view::iterator _end;
+        const wchar_t* _it;
+        const wchar_t* _end;
         std::wstring_view _value;
         bool _advance = true;
     };
