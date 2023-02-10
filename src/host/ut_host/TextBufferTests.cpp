@@ -304,7 +304,7 @@ void TextBufferTests::DoBoundaryTest(PCWCHAR const pwszInputString,
     // copy string into buffer
     for (til::CoordType i = 0; i < cLength; ++i)
     {
-        row.ReplaceCharacters(i, 1, { &pwszInputString[i], 1 });
+        row.ReplaceCharacters(i, false, { &pwszInputString[i], 1 });
     }
 
     // space pad the rest of the string
@@ -622,7 +622,7 @@ void TextBufferTests::TestIncrementCircularBuffer()
 
         // fill first row with some stuff
         auto& FirstRow = textBuffer._GetFirstRow();
-        FirstRow.ReplaceCharacters(0, 1, { L"A" });
+        FirstRow.ReplaceCharacters(0, false, { L"A" });
 
         // ensure it does say that it contains text
         VERIFY_IS_TRUE(FirstRow.ContainsText());
@@ -1846,7 +1846,7 @@ void TextBufferTests::ResizeTraditionalRotationPreservesHighUnicode()
     // This is the negative squared latin capital letter B emoji: 🅱
     // It's encoded in UTF-16, as needed by the buffer.
     const auto bButton = L"\xD83C\xDD71";
-    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, 2, bButton);
+    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, true, bButton);
 
     // Read back the text at that position and ensure that it matches what we wrote.
     const auto readBack = _buffer->GetTextDataAt(pos);
@@ -1887,7 +1887,7 @@ void TextBufferTests::ScrollBufferRotationPreservesHighUnicode()
     // This is the fire emoji: 🔥
     // It's encoded in UTF-16, as needed by the buffer.
     const auto fire = L"\xD83D\xDD25";
-    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, 2, fire);
+    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, true, fire);
 
     // Read back the text at that position and ensure that it matches what we wrote.
     const auto readBack = _buffer->GetTextDataAt(pos);
@@ -1926,7 +1926,7 @@ void TextBufferTests::ResizeTraditionalHighUnicodeRowRemoval()
     // This is the eggplant emoji: 🍆
     // It's encoded in UTF-16, as needed by the buffer.
     const auto emoji = L"\xD83C\xDF46";
-    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, 2, emoji);
+    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, true, emoji);
 
     // Read back the text at that position and ensure that it matches what we wrote.
     const auto readBack = _buffer->GetTextDataAt(pos);
@@ -1956,7 +1956,7 @@ void TextBufferTests::ResizeTraditionalHighUnicodeColumnRemoval()
     // This is the peach emoji: 🍑
     // It's encoded in UTF-16, as needed by the buffer.
     const auto emoji = L"\xD83C\xDF51";
-    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, 2, emoji);
+    _buffer->_storage[pos.y].ReplaceCharacters(pos.x, true, emoji);
 
     // Read back the text at that position and ensure that it matches what we wrote.
     const auto readBack = _buffer->GetTextDataAt(pos);
@@ -2005,32 +2005,32 @@ void TextBufferTests::TestOverwriteChars()
 #define simple L"X"
 
     // Test overwriting narrow chars with wide chars at the begin/end of a row.
-    row.ReplaceCharacters(0, 2, complex1);
-    row.ReplaceCharacters(8, 2, complex1);
+    row.ReplaceCharacters(0, true, complex1);
+    row.ReplaceCharacters(8, true, complex1);
     VERIFY_ARE_EQUAL(complex1 L"      " complex1, row.GetText());
 
     // Test overwriting wide chars with wide chars slightly shifted left/right.
-    row.ReplaceCharacters(1, 2, complex1);
-    row.ReplaceCharacters(7, 2, complex1);
+    row.ReplaceCharacters(1, true, complex1);
+    row.ReplaceCharacters(7, true, complex1);
     VERIFY_ARE_EQUAL(L" " complex1 L"    " complex1 L" ", row.GetText());
 
     // Test overwriting wide chars with wide chars.
-    row.ReplaceCharacters(1, 2, complex2);
-    row.ReplaceCharacters(7, 2, complex2);
+    row.ReplaceCharacters(1, true, complex2);
+    row.ReplaceCharacters(7, true, complex2);
     VERIFY_ARE_EQUAL(L" " complex2 L"    " complex2 L" ", row.GetText());
 
     // Test overwriting wide chars with narrow chars.
-    row.ReplaceCharacters(1, 1, simple);
-    row.ReplaceCharacters(8, 1, simple);
+    row.ReplaceCharacters(1, false, simple);
+    row.ReplaceCharacters(8, false, simple);
     VERIFY_ARE_EQUAL(L" " simple L"      " simple L" ", row.GetText());
 
     // Test clearing narrow/wide chars.
-    row.ReplaceCharacters(0, 1, simple);
-    row.ReplaceCharacters(1, 2, complex2);
-    row.ReplaceCharacters(3, 1, simple);
-    row.ReplaceCharacters(6, 1, simple);
-    row.ReplaceCharacters(7, 2, complex2);
-    row.ReplaceCharacters(9, 1, simple);
+    row.ReplaceCharacters(0, false, simple);
+    row.ReplaceCharacters(1, true, complex2);
+    row.ReplaceCharacters(3, false, simple);
+    row.ReplaceCharacters(6, false, simple);
+    row.ReplaceCharacters(7, true, complex2);
+    row.ReplaceCharacters(9, false, simple);
     VERIFY_ARE_EQUAL(simple complex2 simple L"  " simple complex2 simple, row.GetText());
 
     row.ClearCell(0);

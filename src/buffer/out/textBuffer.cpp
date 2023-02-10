@@ -376,6 +376,16 @@ bool TextBuffer::_PrepareForDoubleByteSequence(const DbcsAttribute dbcsAttribute
     return fSuccess;
 }
 
+til::CoordType TextBuffer::Write(til::CoordType row, til::CoordType columnBegin, til::CoordType columnLimit, bool wrapAtEOL, const TextAttribute& attributes, std::wstring_view& chars)
+{
+    auto& r = GetRowByOffset(row);
+    const auto column = r.ReplaceCharacters(columnBegin, columnLimit, chars, nullptr);
+    r.ReplaceAttributes(columnBegin, column, attributes);
+    r.SetWrapForced(wrapAtEOL && column == r.size());
+    TriggerRedraw(Viewport::FromExclusive({ columnBegin, row, column, row + 1 }));
+    return column;
+}
+
 // Routine Description:
 // - Writes cells to the output buffer. Writes at the cursor.
 // Arguments:
@@ -491,13 +501,13 @@ bool TextBuffer::InsertCharacter(const std::wstring_view chars,
             switch (dbcsAttribute)
             {
             case DbcsAttribute::Leading:
-                Row.ReplaceCharacters(iCol, 2, chars);
+                Row.ReplaceCharacters(iCol, true, chars);
                 break;
             case DbcsAttribute::Trailing:
-                Row.ReplaceCharacters(iCol - 1, 2, chars);
+                Row.ReplaceCharacters(iCol - 1, true, chars);
                 break;
             default:
-                Row.ReplaceCharacters(iCol, 1, chars);
+                Row.ReplaceCharacters(iCol, false, chars);
                 break;
             }
         }

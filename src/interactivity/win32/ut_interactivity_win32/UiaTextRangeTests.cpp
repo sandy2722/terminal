@@ -366,7 +366,7 @@ class UiaTextRangeTests
 
             for (uint16_t x = 0; x < width; ++x)
             {
-                row.ReplaceCharacters(x, 1, glyph);
+                row.ReplaceCharacters(x, false, glyph);
             }
         }
 
@@ -495,7 +495,7 @@ class UiaTextRangeTests
             for (uint16_t x = 0; x < width; ++x)
             {
                 const std::wstring_view glyph{ x % 5 == 0 ? L" " : L"x" };
-                row.ReplaceCharacters(x, 1, glyph);
+                row.ReplaceCharacters(x, false, glyph);
             }
         }
 
