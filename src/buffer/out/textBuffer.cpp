@@ -503,13 +503,13 @@ bool TextBuffer::InsertCharacter(const std::wstring_view chars,
             switch (dbcsAttribute)
             {
             case DbcsAttribute::Leading:
-                Row.ReplaceCharacters(iCol, true, chars);
+                Row.ReplaceCharacters(iCol, 2, chars);
                 break;
             case DbcsAttribute::Trailing:
-                Row.ReplaceCharacters(iCol - 1, true, chars);
+                Row.ReplaceCharacters(iCol - 1, 2, chars);
                 break;
             default:
-                Row.ReplaceCharacters(iCol, false, chars);
+                Row.ReplaceCharacters(iCol, 1, chars);
                 break;
             }
         }
